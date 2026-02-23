@@ -1,13 +1,24 @@
-import cheerio from 'cheerio';
+import cheerio from "cheerio";
 
-// LeetCode data fetcher
+/* ---------------- COMMON HEADERS ---------------- */
+const browserHeaders = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+  "Accept-Language": "en-US,en;q=0.9",
+  Accept: "text/html,application/json",
+};
+
+/* ---------------- LEETCODE ---------------- */
 async function fetchLeetCodeData(username) {
   if (!username) return null;
-  
+
   try {
     const response = await fetch("https://leetcode.com/graphql", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": browserHeaders["User-Agent"],
+      },
       body: JSON.stringify({
         query: `
           query ($username: String!) {
@@ -26,21 +37,16 @@ async function fetchLeetCodeData(username) {
     });
 
     const data = await response.json();
-    
-    if (!data.data?.matchedUser) {
-      return null;
-    }
+    if (!data.data?.matchedUser) return null;
 
-    const submissions = data.data.matchedUser.submitStats.acSubmissionNum;
+    const submissions =
+      data.data.matchedUser.submitStats.acSubmissionNum;
+
     const result = {};
-    
-    submissions.forEach(sub => {
+    submissions.forEach((sub) => {
       const difficulty = sub.difficulty.toLowerCase();
-      if (difficulty === 'all') {
-        result.total = sub.count;
-      } else {
-        result[difficulty] = sub.count;
-      }
+      if (difficulty === "all") result.total = sub.count;
+      else result[difficulty] = sub.count;
     });
 
     return result;
@@ -50,22 +56,25 @@ async function fetchLeetCodeData(username) {
   }
 }
 
-// Codeforces data fetcher
+/* ---------------- CODEFORCES ---------------- */
 async function fetchCodeforcesData(username) {
   if (!username) return null;
-  
+
   try {
-    const response = await fetch(`https://codeforces.com/api/user.info?handles=${username}`);
+    const response = await fetch(
+      `https://codeforces.com/api/user.info?handles=${username}`,
+      { headers: browserHeaders }
+    );
+
     const data = await response.json();
-    
-    if (data.status !== 'OK' || !data.result || data.result.length === 0) {
-      return null;
-    }
+
+    if (data.status !== "OK" || !data.result?.length) return null;
 
     const user = data.result[0];
+
     return {
       rating: user.rating || 0,
-      rank: user.rank || 'unrated',
+      rank: user.rank || "unrated",
       maxRating: user.maxRating || 0,
     };
   } catch (error) {
@@ -74,26 +83,32 @@ async function fetchCodeforcesData(username) {
   }
 }
 
-// CodeChef data fetcher
+/* ---------------- CODECHEF ---------------- */
 async function fetchCodeChefData(username) {
   if (!username) return null;
-  
+
   try {
-    const response = await fetch(`https://www.codechef.com/users/${username}`);
+    const response = await fetch(
+      `https://www.codechef.com/users/${username}`,
+      { headers: browserHeaders }
+    );
+
     const html = await response.text();
     const $ = cheerio.load(html);
-    
-    const ratingText = $('.rating-number').text().trim();
+
+    const ratingText = $(".rating-number").text().trim();
     const rating = parseInt(ratingText) || 0;
-    
-    const starsElement = $('.rating-star').length > 0 ? 
-      $('.rating-star').first().parent().text().trim() : '';
-    
-    let stars = '';
-    if (starsElement.includes('star')) {
-      stars = starsElement.split('star')[0].trim() + 'star';
+
+    const starsElement =
+      $(".rating-star").length > 0
+        ? $(".rating-star").first().parent().text().trim()
+        : "";
+
+    let stars = "";
+    if (starsElement.includes("star")) {
+      stars = starsElement.split("star")[0].trim() + "star";
     }
-    
+
     return { rating, stars };
   } catch (error) {
     console.error("CodeChef error:", error);
@@ -101,28 +116,31 @@ async function fetchCodeChefData(username) {
   }
 }
 
-// GFG data fetcher
+/* ---------------- GFG ---------------- */
 async function fetchGFGData(username) {
   if (!username) return null;
-  
+
   try {
-    const response = await fetch(`https://auth.geeksforgeeks.org/user/${username}/`);
+    const response = await fetch(
+      `https://auth.geeksforgeeks.org/user/${username}/`,
+      { headers: browserHeaders }
+    );
+
     const html = await response.text();
     const $ = cheerio.load(html);
-    
-    const problemsSolvedText = $('.profile_head_content--small').text();
-    const match = problemsSolvedText.match(/(\d+)\s+problems\s+solved/i);
-    
+
+    const text = $(".profile_head_content--small").text();
+
+    const match = text.match(/(\d+)\s+problems\s+solved/i);
     if (match) {
       return { problemsSolved: parseInt(match[1]) };
     }
-    
-    // Alternative parsing
-    const altMatch = problemsSolvedText.match(/(\d+)/);
+
+    const altMatch = text.match(/(\d+)/);
     if (altMatch) {
       return { problemsSolved: parseInt(altMatch[1]) };
     }
-    
+
     return null;
   } catch (error) {
     console.error("GFG error:", error);
@@ -130,41 +148,36 @@ async function fetchGFGData(username) {
   }
 }
 
+/* ---------------- API HANDLER ---------------- */
 export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
   const { leetcode, codeforces, codechef, gfg } = req.query;
 
   try {
-    // Fetch data from all platforms in parallel
-    const [
-      leetcodeData,
-      codeforcesData,
-      codechefData,
-      gfgData
-    ] = await Promise.allSettled([
+    const results = await Promise.allSettled([
       fetchLeetCodeData(leetcode),
       fetchCodeforcesData(codeforces),
       fetchCodeChefData(codechef),
-      fetchGFGData(gfg)
+      fetchGFGData(gfg),
     ]);
 
-    const result = {
-      leetcode: leetcodeData.status === 'fulfilled' ? leetcodeData.value : null,
-      codeforces: codeforcesData.status === 'fulfilled' ? codeforcesData.value : null,
-      codechef: codechefData.status === 'fulfilled' ? codechefData.value : null,
-      gfg: gfgData.status === 'fulfilled' ? gfgData.value : null,
-    };
-
-    res.status(200).json(result);
+    res.status(200).json({
+      leetcode:
+        results[0].status === "fulfilled" ? results[0].value : null,
+      codeforces:
+        results[1].status === "fulfilled" ? results[1].value : null,
+      codechef:
+        results[2].status === "fulfilled" ? results[2].value : null,
+      gfg: results[3].status === "fulfilled" ? results[3].value : null,
+    });
   } catch (error) {
     console.error("Profile API error:", error);
     res.status(500).json({ error: "Server error" });
